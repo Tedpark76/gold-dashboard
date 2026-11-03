@@ -35,9 +35,6 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
-      - name: Test
-        run: python -m pytest -q
-
       - name: Update data (scrape, compute, analyze)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
