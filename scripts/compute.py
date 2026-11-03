@@ -20,7 +20,9 @@ def spread_pct(fut: float, spot: float) -> float:
     return round((fut - spot) / spot * 100, 2)
 
 
-def build_row(date: dt.date, *, gold_fut, gold_spot, silver_fut, silver_spot, usdkrw, note: str = "") -> dict:
+def build_row(date: dt.date, *, gold_fut, gold_spot, silver_fut, silver_spot, usdkrw, note: str = "",
+              gold_krw_don=None, silver_krw_don=None) -> dict:
+    """gold_krw_don·silver_krw_don을 주면 계산하지 않고 그 값(예: 엑셀의 국내기준가)을 그대로 쓴다."""
     return {
         "date": date.isoformat(),
         "weekday": WEEKDAYS[date.weekday()],
@@ -32,8 +34,8 @@ def build_row(date: dt.date, *, gold_fut, gold_spot, silver_fut, silver_spot, us
         "usdkrw": round(usdkrw, 2),
         "gold_spread_pct": spread_pct(gold_fut, gold_spot),
         "silver_spread_pct": spread_pct(silver_fut, silver_spot),
-        "gold_krw_don": krw_per_don(gold_spot, usdkrw),
-        "silver_krw_don": krw_per_don(silver_spot, usdkrw),
+        "gold_krw_don": int(gold_krw_don) if gold_krw_don is not None else krw_per_don(gold_spot, usdkrw),
+        "silver_krw_don": int(silver_krw_don) if silver_krw_don is not None else krw_per_don(silver_spot, usdkrw),
         "gold_krw_dod_pct": 0.0,
         "silver_krw_dod_pct": 0.0,
     }
