@@ -22,7 +22,7 @@
     bg: '#ffffff', fg: '#1b1b1b', mute: '#666a70', grid: '#e6e7ea',
     gold: '#a67c00', silver: '#6b7280', up: '#2563eb', down: '#dc2626', pin: '#111827'
   };
-  const FONT = '-apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
+  const FONT = '"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Nanum Gothic", "Pretendard", -apple-system, sans-serif';
   const NAME = { gold: '금', silver: '은' };
 
   const GD = { rows: [], ana: [], latest: null };
@@ -408,12 +408,12 @@
     // 핵심 한 줄
     let y = 262;
     const hl = ['h1', 'h2', 'h3'].map((id, i) => ({
-      font: (i === 0 ? '700 32px ' : '600 24px ') + FONT, lh: i === 0 ? 46 : 36, color: i === 0 ? '#3b2a8c' : INF.ink, text: byId(id)
+      font: (i === 0 ? '700 32px ' : '600 24px ') + FONT, lh: i === 0 ? 42 : 31, color: i === 0 ? '#3b2a8c' : INF.ink, text: byId(id)
     }));
     let boxH = 76;
     hl.forEach((o) => { c.font = o.font; o.lines = wrapText(c, o.text, W - 2 * P - 90); boxH += o.lines.length * o.lh + 10; });
     softCard(c, P, y, W - 2 * P, boxH, 28, '#ffffff');
-    c.fillStyle = rgba(INF.gold, 0.9); c.font = '700 96px Georgia, serif'; c.fillText('“', P + 28, y + 86);
+    c.fillStyle = rgba(INF.gold, 0.9); c.font = '700 96px ' + FONT; c.fillText('“', P + 28, y + 86);
     let ty = y + 40;
     hl.forEach((o) => { c.font = o.font; c.fillStyle = o.color; o.lines.forEach((ln) => { ty += o.lh; c.fillText(ln, P + 84, ty - 6); }); ty += 10; });
     y += boxH + 52;
@@ -462,7 +462,7 @@
       const sl = wrapText(c, clean(f.summary), tmax);
       c.font = '600 22px ' + FONT;
       const dl = wrapText(c, clean(f.text), tmax);
-      const ch = 30 + 46 + sl.length * 38 + dl.length * 33 + 34;
+      const ch = 30 + 46 + sl.length * 35 + dl.length * 29 + 34;
       softCard(c, P, y, W - 2 * P, ch, 26, '#ffffff');
       c.fillStyle = tint; rr(c, P, y + 22, 10, ch - 44, 5); c.fill();
       c.fillStyle = rgba(tint, 0.2); c.beginPath(); c.arc(P + 62, y + 66, 36, 0, Math.PI * 2); c.fill();
@@ -481,9 +481,9 @@
       }
       let ly = y + 76;
       c.fillStyle = INF.ink; c.font = '700 27px ' + FONT;
-      sl.forEach((ln) => { ly += 38; c.fillText(ln, tx, ly - 6); });
+      sl.forEach((ln) => { ly += 35; c.fillText(ln, tx, ly - 6); });
       c.fillStyle = INF.mute; c.font = '600 22px ' + FONT;
-      dl.forEach((ln) => { ly += 33; c.fillText(ln, tx, ly - 4); });
+      dl.forEach((ln) => { ly += 29; c.fillText(ln, tx, ly - 4); });
       y += ch + 24;
     });
     y += 28;
@@ -523,7 +523,7 @@
       const sl = wrapText(c, clean(cp.summary), tmax);
       c.font = '600 22px ' + FONT;
       const dl = wrapText(c, clean(cp.text), tmax);
-      const ch = 40 + sl.length * 38 + dl.length * 33 + 34;
+      const ch = 40 + sl.length * 34 + dl.length * 29 + 34;
       const cg = c.createLinearGradient(P, y, W - P, y + ch);
       cg.addColorStop(0, '#d5f5ef'); cg.addColorStop(1, '#e8e0ff');
       softCard(c, P, y, W - 2 * P, ch, 26, cg);
@@ -531,16 +531,16 @@
       c.fillStyle = '#0f766e'; c.font = '700 22px ' + FONT; c.fillText(cp.title, P + 110, y + 46);
       let ly = y + 46;
       c.fillStyle = INF.ink; c.font = '700 26px ' + FONT;
-      sl.forEach((ln) => { ly += 38; c.fillText(ln, P + 110, ly - 4); });
+      sl.forEach((ln) => { ly += 34; c.fillText(ln, P + 110, ly - 4); });
       c.fillStyle = INF.mute; c.font = '600 22px ' + FONT;
-      dl.forEach((ln) => { ly += 33; c.fillText(ln, P + 110, ly - 2); });
+      dl.forEach((ln) => { ly += 29; c.fillText(ln, P + 110, ly - 2); });
       y += ch + 52;
     }
 
     // 꼬리말
     c.fillStyle = INF.mute; c.font = '600 18px ' + FONT;
     wrapText(c, '시세 출처: investing.com (금·은 선물과 현물, 달러/원). ' + byId('n1') + (GD.sample ? ' 이 이미지는 샘플 데이터로 만든 예시입니다.' : ''), W - 2 * P)
-      .forEach((ln) => { c.fillText(ln, P, y + 20); y += 28; });
+      .forEach((ln) => { c.fillText(ln, P, y + 20); y += 23; });
     y += 40;
     const fg = c.createLinearGradient(0, y, W, y);
     fg.addColorStop(0, '#2e1f7a'); fg.addColorStop(0.62, '#6d3fd1'); fg.addColorStop(1, '#d08a1d');

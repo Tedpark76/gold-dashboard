@@ -13,18 +13,19 @@
     --cds-radius: 12px; --cds-gap-xs: 6px; --cds-gap-sm: 10px; --cds-gap-md: 16px; --cds-gap-lg: 24px; --cds-pad-lg: 20px;
     --cds-font-size-caption: 13px; --cds-font-size-body: 15px; --cds-font-size-heading: 18px; --cds-font-size-title: 28px;
     --cds-font-weight-medium: 600;
-    --font-anthropic-sans: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
-    --font-anthropic-serif: Georgia, "Noto Serif KR", "Nanum Myeongjo", serif;
+    --font-anthropic-sans: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Nanum Gothic", "Pretendard", -apple-system, system-ui, sans-serif;
+    --font-anthropic-serif: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Nanum Gothic", "Pretendard", -apple-system, system-ui, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root { --color-fg: #eceef2; --color-fg-muted: #a3a9b4; --color-bg: #14161a; --color-panel: #1d2026; --color-border-line: #323843; --color-ok: #4ade80; --color-warn: #fbbf24; --color-bad: #f87171; }
   }
   html { -webkit-text-size-adjust: 100%; }
-  body { margin: 0; padding: 20px 16px 48px; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-anthropic-sans); }
-  .gd { max-width: 1180px; margin-inline: auto; font-family: var(--font-anthropic-sans); color: var(--color-fg); }
+  body { margin: 0; padding: 20px 16px 48px; background: var(--color-bg); color: var(--color-fg); font-family: var(--font-anthropic-sans); line-height: 1.3; }
+  .gd { max-width: 1180px; margin-inline: auto; font-family: var(--font-anthropic-sans); color: var(--color-fg); line-height: 1.3; }
+  .gd h1, .gd h2, .gd h3, .gd p, .gd table, .gd button { font-family: var(--font-anthropic-sans); line-height: 1.3; }
   .gd * { box-sizing: border-box; }
   .gd-bar { display: flex; flex-wrap: wrap; gap: var(--cds-gap-sm); align-items: center; justify-content: space-between; margin-bottom: var(--cds-gap-md); }
-  .gd-title { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; }
+  .gd-title { font-family: var(--font-anthropic-sans); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; }
   .gd-asof { margin: 2px 0 0; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
   .gd-btns { display: flex; flex-wrap: wrap; gap: var(--cds-gap-xs); }
   .gd-btn { font: inherit; font-size: var(--cds-font-size-caption); padding: 6px 12px; border-radius: var(--cds-radius); border: 1px solid var(--color-border-line); background: var(--color-panel); color: var(--color-fg); cursor: pointer; }
@@ -36,8 +37,8 @@
   .gd-card h2 { margin: 0 0 4px; font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); }
   .gd-note { margin: 0 0 var(--cds-gap-sm); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
   .gd-headline { margin-bottom: var(--cds-gap-md); }
-  .gd-headline p { margin: 0; font-size: var(--cds-font-size-body); line-height: 1.55; }
-  .gd-headline p:first-of-type { font-family: var(--font-anthropic-serif); font-size: var(--cds-font-size-heading); }
+  .gd-headline p { margin: 0; font-size: var(--cds-font-size-body); line-height: 1.3; }
+  .gd-headline p:first-of-type { font-family: var(--font-anthropic-sans); font-size: var(--cds-font-size-heading); }
   .gd-main { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: var(--cds-gap-md); margin-bottom: var(--cds-gap-md); align-items: start; }
   .gd-sec { margin-bottom: var(--cds-gap-md); }
   .gd-sec:last-child { margin-bottom: 0; }
@@ -51,7 +52,7 @@
   .gd-state { font-size: var(--cds-font-size-caption); margin-left: 6px; font-weight: var(--cds-font-weight-medium); }
   .gd-state.up, .gd-val.up { color: #3b82f6; }
   .gd-state.down, .gd-val.down { color: #ef4444; }
-  .gd-ana p { margin: 0 0 var(--cds-gap-sm); font-size: var(--cds-font-size-body); line-height: 1.5; }
+  .gd-ana p { margin: 0 0 var(--cds-gap-sm); font-size: var(--cds-font-size-body); line-height: 1.3; }
   .gd-ana b { display: block; font-size: var(--cds-font-size-caption); font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); margin-bottom: 1px; }
   .gd-ana .gd-notice { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-bottom: 0; }
   .gd-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: var(--cds-gap-md); }
