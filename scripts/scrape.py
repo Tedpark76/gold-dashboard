@@ -1,7 +1,6 @@
 """investing.com 시세 스크래핑 (Playwright).
 
-주의: 사이트 구조가 바뀌거나 자동 접속을 막으면 실패할 수 있습니다.
-실패하면 ScrapeError와 함께 diagnostics/ 폴더에 페이지 HTML을 남기므로, 그 파일을 보고 SELECTORS를 고치세요.
+실패하면 ScrapeError 메시지에 접속 상태가 같이 찍히고, diagnostics/ 폴더에 HTML과 스크린샷이 남습니다.
 """
 from __future__ import annotations
 
@@ -19,14 +18,14 @@ PAGES = {
 }
 HIST_PAGES = {k: v + "-historical-data" for k, v in PAGES.items()}
 
-# 현재가를 찾는 후보 선택자(위에서부터 시도). 첫 실행 때 diagnostics HTML로 확인해 고정하세요.
 SELECTORS = [
     '[data-test="instrument-price-last"]',
     '[data-test="instrument-header-price"]',
 ]
-META_RE = re.compile(r"([\d,]+(?:\.\d+)?)\s*(?:로|으로)\s*거래를")   # 예: "4,180.87로 거래를 마감한 ..."
+META_RE = re.compile(r"([\d,]+(?:\.\d+)?)\s*(?:로|으로)\s*거래를")
 DATE_RE = re.compile(r"(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일")
 DIAG = pathlib.Path("diagnostics")
+BLOCK_HINTS = ("just a moment", "attention required", "access denied", "잠시만", "로봇", "captcha")
 
 
 class ScrapeError(RuntimeError):
@@ -51,14 +50,47 @@ def parse_history_rows(rows: list) -> dict:
     return out
 
 
-def _save_diag(page, key: str) -> None:
+def _dismiss_popups(page) -> None:
+    for sel in ('#onetrust-accept-btn-handler', 'button:has-text("동의")', 'button:has-text("수락")', 'button:has-text("Accept")'):
+        try:
+            el = page.query_selector(sel)
+            if el:
+                el.click(timeout=2000)
+                break
+        except Exception:
+            pass
+
+
+def _diagnose(page, key: str, status) -> str:
+    """진단 파일을 저장하고, 로그에 바로 보일 한 줄 설명을 돌려준다."""
     DIAG.mkdir(exist_ok=True)
-    (DIAG / f"{key}.html").write_text(page.content(), encoding="utf-8")
+    try:
+        (DIAG / f"{key}.html").write_text(page.content(), encoding="utf-8")
+        page.screenshot(path=str(DIAG / f"{key}.png"))
+    except Exception:
+        pass
+    try:
+        title = page.title()
+    except Exception:
+        title = ""
+    try:
+        body = page.inner_text("body")[:300].replace("\n", " ")
+    except Exception:
+        body = ""
+    blocked = status in (403, 429) or any(h in (title + " " + body).lower() for h in BLOCK_HINTS)
+    hint = " → 투자닷컴이 자동 접속을 막은 것으로 보입니다." if blocked else ""
+    return f"[HTTP {status}] 제목={title!r} 주소={page.url} 본문 앞부분={body!r}{hint}"
+
+
+def _open(page, url: str):
+    resp = page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(2500)
+    _dismiss_popups(page)
+    return resp.status if resp else None
 
 
 def fetch_last(page, key: str) -> float:
-    page.goto(PAGES[key], wait_until="domcontentloaded", timeout=60_000)
-    page.wait_for_timeout(2500)
+    status = _open(page, PAGES[key])
     for sel in SELECTORS:
         el = page.query_selector(sel)
         if el:
@@ -70,21 +102,22 @@ def fetch_last(page, key: str) -> float:
     m = META_RE.search(meta)
     if m:
         return parse_number(m[1])
-    _save_diag(page, key)
-    raise ScrapeError(f"{key}: 현재가를 찾지 못했습니다 (diagnostics/{key}.html 확인)")
+    raise ScrapeError(f"{key}: 현재가를 찾지 못했습니다. " + _diagnose(page, key, status))
 
 
 def fetch_history(page, key: str) -> dict:
-    page.goto(HIST_PAGES[key], wait_until="domcontentloaded", timeout=60_000)
-    page.wait_for_timeout(2500)
+    status = _open(page, HIST_PAGES[key])
+    try:
+        page.wait_for_selector("table tr td", timeout=20_000)
+    except Exception:
+        pass
     rows = page.eval_on_selector_all(
         "table tr",
         "trs => trs.map(tr => Array.from(tr.querySelectorAll('th,td')).map(c => c.innerText.trim()))",
     )
     data = parse_history_rows(rows)
     if not data:
-        _save_diag(page, key + "_history")
-        raise ScrapeError(f"{key}: 과거 데이터 표를 찾지 못했습니다 (diagnostics/{key}_history.html 확인)")
+        raise ScrapeError(f"{key}: 과거 데이터 표를 찾지 못했습니다. " + _diagnose(page, key + "_history", status))
     return data
 
 
