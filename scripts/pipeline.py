@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import datetime as dt
 import json
 import pathlib
@@ -14,6 +15,7 @@ import compute  # noqa: E402
 
 DATA = pathlib.Path(__file__).resolve().parent.parent / "site" / "data"
 KST = zoneinfo.ZoneInfo("Asia/Seoul")
+SEED = pathlib.Path(__file__).resolve().parent.parent / "seed" / "spot_history.csv"
 
 
 def load(name: str, default):
@@ -45,6 +47,45 @@ def backfill_rows(histories: dict, days: int = 30, today: dt.date | None = None)
     return compute.apply_dod(rows)
 
 
+def load_seed(path: pathlib.Path = SEED) -> list:
+    """seed/spot_history.csv(과거 현물 시세·환율·국내기준가)를 읽는다. 파일이 없으면 빈 목록."""
+    if not path.exists():
+        return []
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            out.append({
+                "date": dt.date.fromisoformat(r["date"]),
+                "gold_spot": float(r["gold_spot"]), "gold_usdkrw": float(r["gold_usdkrw"]), "gold_krw_don": int(float(r["gold_krw_don"])),
+                "silver_spot": float(r["silver_spot"]), "silver_usdkrw": float(r["silver_usdkrw"]), "silver_krw_don": int(float(r["silver_krw_don"])),
+            })
+    return sorted(out, key=lambda r: r["date"])
+
+
+def lag_close(series: dict, day: dt.date):
+    """day 오전 9시(KST) 시점에 확정돼 있는 직전 미국 거래일 종가 (day보다 앞선 가장 최근 날짜의 값)."""
+    earlier = [d for d in series if d < day]
+    return series[max(earlier)] if earlier else None
+
+
+def backfill_from_seed(seed: list, histories: dict, days: int = 30, today: dt.date | None = None) -> list:
+    """엑셀(seed)의 현물·환율·국내기준가에 Yahoo 선물 종가를 붙여 이력 행을 만든다. 일요일은 제외."""
+    today = today or dt.datetime.now(KST).date()
+    start = today - dt.timedelta(days=days)
+    rows = []
+    for s in seed:
+        d = s["date"]
+        if d.weekday() == 6 or not (start <= d <= today):
+            continue
+        gf, sf = lag_close(histories["gold_fut"], d), lag_close(histories["silver_fut"], d)
+        if gf is None or sf is None:
+            continue
+        rows.append(compute.build_row(
+            d, gold_fut=gf, gold_spot=s["gold_spot"], silver_fut=sf, silver_spot=s["silver_spot"],
+            usdkrw=s["gold_usdkrw"], gold_krw_don=s["gold_krw_don"], silver_krw_don=s["silver_krw_don"]))
+    return compute.apply_dod(rows)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill", action="store_true", help="과거 30일 이력을 새로 채운다 (처음 한 번)")
@@ -63,7 +104,9 @@ def main() -> int:
     meta = load("meta.json", {})
     if args.backfill or meta.get("sample", True) or not rows:
         print("과거 30일 이력을 조사합니다...")
-        rows = backfill_rows(scrape.scrape_histories(), today=now.date())
+        hist = scrape.scrape_histories()
+        seed = load_seed()
+        rows = backfill_from_seed(seed, hist, today=now.date()) if seed else backfill_rows(hist, today=now.date())
 
     print("현재 시세를 가져옵니다...")
     live = scrape.scrape_live()
