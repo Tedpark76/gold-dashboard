@@ -86,16 +86,35 @@ def backfill_from_seed(seed: list, histories: dict, days: int = 30, today: dt.da
     return compute.apply_dod(rows)
 
 
+def already_fresh(meta: dict, now: dt.datetime) -> bool:
+    """meta.json의 갱신 시각이 오늘 오전 9시(KST) 이후면 True."""
+    if meta.get("sample", True) or not meta.get("updated_at"):
+        return False
+    try:
+        t = dt.datetime.fromisoformat(meta["updated_at"])
+    except ValueError:
+        return False
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=KST)
+    return t.astimezone(KST) >= now.replace(hour=9, minute=0, second=0, microsecond=0) and t.astimezone(KST).date() == now.date()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill", action="store_true", help="과거 30일 이력을 새로 채운다 (처음 한 번)")
     ap.add_argument("--no-analysis", action="store_true", help="시장분석 작성을 건너뛴다")
     ap.add_argument("--force", action="store_true", help="일요일에도 실행한다")
+    ap.add_argument("--skip-if-fresh", action="store_true",
+                    help="오늘 오전 9시 이후 이미 갱신했다면 건너뛴다 (예비 예약 실행용)")
     args = ap.parse_args()
 
     now = dt.datetime.now(KST)
     if now.weekday() == 6 and not args.force:
         print("일요일은 휴무라 갱신하지 않습니다.")
+        return 0
+
+    if args.skip_if_fresh and not args.backfill and already_fresh(load("meta.json", {}), now):
+        print("오늘 오전 9시 이후 이미 갱신돼 있어 건너뜁니다.")
         return 0
 
     import scrape  # Playwright는 실제 실행할 때만 불러온다
@@ -106,36 +125,4 @@ def main() -> int:
         print("과거 30일 이력을 조사합니다...")
         hist = scrape.scrape_histories()
         seed = load_seed()
-        rows = backfill_from_seed(seed, hist, today=now.date()) if seed else backfill_rows(hist, today=now.date())
-
-    print("현재 시세를 가져옵니다...")
-    live = scrape.scrape_live()
-    row = compute.build_row(now.date(), **live)
-    rows = compute.trim(compute.upsert(rows, row))
-    save("history.json", rows)
-
-    old = load("analysis.json", [])
-    if args.no_analysis:
-        print("시장분석을 건너뜁니다.")
-    else:
-        prev_dates = {r["date"] for r in old if r["kind"].startswith("spike_")}
-        new_spikes = [s for s in compute.spikes(rows) if s["date"] not in prev_dates or s["date"] == rows[-1]["date"]]
-        try:
-            result = analyze.call_model(analyze.build_prompt(rows, new_spikes))
-            save("analysis.json", analyze.build_rows(rows, result, new_spikes, old))
-        except Exception as e:  # 분석이 실패해도 시세는 갱신한다
-            print("시장분석 작성 실패:", e, file=sys.stderr)
-            fallback = {
-                "headline_reason": "오늘 시장분석 작성에 실패해 시세만 갱신했어요.",
-                "common": "", "gold": "", "silver": "", "schedule": "",
-                "factors": [{"icon": "ℹ️", "title": "분석 대기", "target": "금·은", "impact": "flat",
-                             "summary": "시장분석을 불러오지 못했어요", "text": "잠시 후 다시 갱신될 때까지 기다려 주세요."}] * 4,
-            }
-            save("analysis.json", analyze.build_rows(rows, fallback, [], old))
-    save("meta.json", {"sample": False, "updated_at": now.isoformat(timespec="minutes"), "date": rows[-1]["date"]})
-    print("완료:", rows[-1]["date"])
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        rows = backfill_from_seed(seed, hist, today=now.date()) if seed else
