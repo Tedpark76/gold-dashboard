@@ -12,6 +12,7 @@ import zoneinfo
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import analyze  # noqa: E402
 import compute  # noqa: E402
+import rates  # noqa: E402
 
 DATA = pathlib.Path(__file__).resolve().parent.parent / "site" / "data"
 KST = zoneinfo.ZoneInfo("Asia/Seoul")
@@ -126,6 +127,7 @@ def main() -> int:
     if now.weekday() == 6 and not args.force:
         print("일요일은 휴무라 갱신하지 않습니다.")
         return 0
+        rates.update(DATA, now)
 
     if args.skip_if_fresh and not args.backfill and already_fresh(load("meta.json", {}), now):
         print("오늘 9시 이후 이미 갱신돼 있어 건너뜁니다.")
