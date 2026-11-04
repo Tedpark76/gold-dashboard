@@ -26,10 +26,13 @@ def load(name: str, default):
 
 def save(name: str, obj) -> None:
     DATA.mkdir(parents=True, exist_ok=True)
-    (DATA / name).write_text(json.dumps(obj, ensure_ascii=False, indent=1), encoding="utf-8")
+    text = json.dumps(obj, ensure_ascii=False, indent=1)
+    (DATA / name).write_text(text, encoding="utf-8")
 
 
-def backfill_rows(histories: dict, days: int = 30, today: dt.date | None = None) -> list:
+def backfill_rows(
+    histories: dict, days: int = 30, today: dt.date | None = None
+) -> list:
     """5개 시세의 과거 종가를 날짜별로 합쳐 이력 행을 만든다."""
     today = today or dt.datetime.now(KST).date()
     start = today - dt.timedelta(days=days)
@@ -84,7 +87,8 @@ def backfill_from_seed(
         d = s["date"]
         if d.weekday() == 6 or not (start <= d <= today):
             continue
-        gf, sf = lag_close(histories["gold_fut"], d), lag_close(histories["silver_fut"], d)
+        gf = lag_close(histories["gold_fut"], d)
+        sf = lag_close(histories["silver_fut"], d)
         if gf is None or sf is None:
             continue
         rows.append(compute.build_row(
@@ -115,12 +119,29 @@ def already_fresh(meta: dict, now: dt.datetime) -> bool:
     return t >= nine and t.date() == now.date()
 
 
+def pending_spikes(rows: list, old: list) -> list:
+    """아직 시장분석 문장이 없는 급등락일. 실패 자리표시 문구는 없는 것으로 본다."""
+    done = {
+        (r["kind"], r["date"])
+        for r in old
+        if r["kind"].startswith("spike_")
+        and r.get("text") != analyze.MISSING_TEXT
+    }
+    last_date = rows[-1]["date"]
+    return [
+        s for s in compute.spikes(rows)
+        if (f"spike_{s['metal']}", s["date"]) not in done or s["date"] == last_date
+    ]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill", action="store_true", help="과거 30일 이력을 새로 채움")
     ap.add_argument("--no-analysis", action="store_true", help="시장분석을 건너뜀")
     ap.add_argument("--force", action="store_true", help="일요일에도 실행")
-    ap.add_argument("--skip-if-fresh", action="store_true", help="오늘 9시 이후 갱신했다면 건너뜀")
+    ap.add_argument(
+        "--skip-if-fresh", action="store_true", help="오늘 9시 이후 갱신했다면 건너뜀"
+    )
     args = ap.parse_args()
 
     now = dt.datetime.now(KST)
@@ -131,7 +152,8 @@ def main() -> int:
     print("금리 지표를 갱신합니다...")
     rates.update(DATA, now)
 
-    if args.skip_if_fresh and not args.backfill and already_fresh(load("meta.json", {}), now):
+    fresh = already_fresh(load("meta.json", {}), now)
+    if args.skip_if_fresh and not args.backfill and fresh:
         print("오늘 9시 이후 이미 갱신돼 있어 건너뜁니다.")
         return 0
 
@@ -158,12 +180,7 @@ def main() -> int:
     if args.no_analysis:
         print("시장분석을 건너뜁니다.")
     else:
-        prev_dates = {r["date"] for r in old if r["kind"].startswith("spike_")}
-        last_date = rows[-1]["date"]
-        new_spikes = [
-            s for s in compute.spikes(rows)
-            if s["date"] not in prev_dates or s["date"] == last_date
-        ]
+        new_spikes = pending_spikes(rows, old)
         try:
             result = analyze.call_model(analyze.build_prompt(rows, new_spikes))
             save("analysis.json", analyze.build_rows(rows, result, new_spikes, old))
