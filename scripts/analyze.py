@@ -5,7 +5,7 @@ import json
 import os
 import re
 
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+MODEL = os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-5-5"
 NOTICE = "투자 권유가 아닌 참고용 정보이며, 국제 현물가×환율로 환산한 값이라 실제 거래가와 다를 수 있습니다."
 
 SYSTEM = (
@@ -70,7 +70,7 @@ def call_model(prompt: str) -> dict:
     client = anthropic.Anthropic()
     msg = client.messages.create(
         model=MODEL,
-        max_tokens=4000,
+        max_tokens=6000,
         system=SYSTEM,
         tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}],
         messages=[{"role": "user", "content": prompt}],
