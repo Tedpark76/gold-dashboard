@@ -15,6 +15,8 @@ NOTICE = (
     "실제 거래가와 다를 수 있습니다."
 )
 
+MISSING_TEXT = "당일 시장분석을 작성하지 못했어요."
+
 SYSTEM = (
     "당신은 금·은 시세를 쉽게 풀어 주는 한국어 시장 해설가입니다. "
     "주어진 수치와 웹 검색으로 확인한 당일 뉴스만 근거로 쓰고, "
@@ -89,8 +91,127 @@ def build_prompt(rows: list, new_spikes: list) -> str:
         "factors는 정확히 4개(달러·환율, 금리·연준, 금 수급/안전자산, "
         "은 산업 수요 등 오늘 의미 있는 순서)로 쓰세요.\n"
     )
-    return (
-        "\n".join(lines)
-        + ask
-        + SCHEMA_HINT
+    return "\n".join(lines) + ask + SCHEMA_HINT
+
+
+TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+
+
+def strip_tags(x):
+    """모델이 섞어 넣은 <cite ...> 같은 태그를 지우고 안의 글만 남긴다."""
+    if isinstance(x, str):
+        return TAG_RE.sub("", x).strip()
+    if isinstance(x, list):
+        return [strip_tags(i) for i in x]
+    if isinstance(x, dict):
+        return {k: strip_tags(v) for k, v in x.items()}
+    return x
+
+
+def extract_json(text: str) -> dict:
+    m = re.search(r"\{.*\}", text, re.S)
+    if not m:
+        raise ValueError("모델 응답에서 JSON을 찾지 못했습니다")
+    return json.loads(m.group(0))
+
+
+def call_model(prompt: str) -> dict:
+    import anthropic
+
+    client = anthropic.Anthropic()
+    msg = client.messages.create(
+        model=MODEL,
+        max_tokens=6000,
+        system=SYSTEM,
+        tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}],
+        messages=[{"role": "user", "content": prompt}],
     )
+    text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+    text = re.sub(r"</?cite[^>]*>", "", text)
+    return strip_tags(extract_json(text))
+
+
+def build_rows(rows: list, result: dict, new_spikes: list, old_rows: list) -> list:
+    """사이트가 읽는 analysis.json 행 목록을 만든다."""
+    t = rows[-1]
+    gs, ss = t["gold_spread_pct"], t["silver_spread_pct"]
+    date = t["date"]
+    gold_line = (
+        f"원화 금 시세 {t['gold_krw_don']:,}원/돈(3.75g), "
+        f"전일 대비 {t['gold_krw_dod_pct']:+.2f}% (국제가 환산)"
+    )
+    silver_line = (
+        f"원화 은 시세 {t['silver_krw_don']:,}원/돈, "
+        f"전일 대비 {t['silver_krw_dod_pct']:+.2f}% · "
+        f"달러/원 {t['usdkrw']:,.2f}원"
+    )
+    spread_line = (
+        f"금 괴리율 {gs:+.2f}% {_fmt_state(gs)}, "
+        f"은 괴리율 {ss:+.2f}% {_fmt_state(ss)}. "
+        "양수는 콘탱고, 음수는 백워데이션이에요."
+    )
+    scale_text = (
+        "선물이 현물보다 비싸면 콘탱고, 싸면 백워데이션이에요. "
+        "간격이 갑자기 커지면 수급이 한쪽으로 쏠렸다는 신호일 수 있어요."
+    )
+    out = [
+        dict(id="h1", kind="headline", no=1, date=date, title="", text=gold_line),
+        dict(id="h2", kind="headline", no=2, date=date, title="", text=silver_line),
+        dict(id="h3", kind="headline", no=3, date=date, title="",
+             text=result["headline_reason"]),
+        dict(id="m1", kind="common", no=1, date=date, title="공통 요인",
+             text=result["common"]),
+        dict(id="m2", kind="gold", no=2, date=date, title="금 요인",
+             text=result["gold"]),
+        dict(id="m3", kind="silver", no=3, date=date, title="은 요인",
+             text=result["silver"]),
+        dict(id="m4", kind="spread", no=4, date=date, title="선물·현물 괴리",
+             text=spread_line),
+        dict(id="m5", kind="schedule", no=5, date=date, title="오늘의 주목 일정",
+             text=result.get("schedule", "")),
+        dict(id="n1", kind="notice", no=6, date=date, title="안내", text=NOTICE),
+    ]
+    for i, f in enumerate(result["factors"][:4], start=1):
+        out.append(dict(
+            id=f"f{i}", kind="factor", no=i, date=date,
+            icon=f["icon"], title=f["title"], target=f["target"],
+            impact=f["impact"], summary=f["summary"], text=f["text"],
+        ))
+    out.append(dict(
+        id="f5", kind="factor", no=5, date=date,
+        icon="⚖️", title="선물과 현물의 간격", target="금·은", impact="flat",
+        summary=f"금 {gs:+.2f}% {_fmt_state(gs)}, 은 {ss:+.2f}% {_fmt_state(ss)}",
+        text=scale_text,
+    ))
+    cp = result.get("checkpoint")
+    if cp:
+        out.append(dict(
+            id="c1", kind="checkpoint", no=1, date=date,
+            icon=cp["icon"], title=cp["title"], target="", impact="flat",
+            summary=cp["summary"], text=cp["text"],
+        ))
+    # 급등락일 분석: 기존 기록은 유지하고 새로 쓴 것을 더한다
+    from compute import spikes as all_spikes
+
+    keep = {
+        (r["kind"], r["date"]): r
+        for r in old_rows
+        if r["kind"].startswith("spike_")
+    }
+    texts = {(s["metal"], s["date"]): s["text"] for s in result.get("spikes", [])}
+    missing = MISSING_TEXT
+    for s in all_spikes(rows):
+        key = (f"spike_{s['metal']}", s["date"])
+        name = "금" if s["metal"] == "gold" else "은"
+        kind_word = "급등" if s["pct"] > 0 else "급락"
+        old_text = (keep.get(key) or {}).get("text")
+        if old_text == MISSING_TEXT:
+            old_text = None
+        text = texts.get((s["metal"], s["date"])) or old_text or missing
+        out.append(dict(
+            id=f"sp_{s['metal']}_{s['date']}",
+            kind=f"spike_{s['metal']}",
+            no=s["no"], date=s["date"], pct=s["pct"],
+            title=f"{name} {kind_word}", text=text,
+        ))
+    return out
