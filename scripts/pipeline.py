@@ -127,7 +127,9 @@ def main() -> int:
     if now.weekday() == 6 and not args.force:
         print("일요일은 휴무라 갱신하지 않습니다.")
         return 0
-        rates.update(DATA, now)
+
+    print("금리 지표를 갱신합니다...")
+    rates.update(DATA, now)
 
     if args.skip_if_fresh and not args.backfill and already_fresh(load("meta.json", {}), now):
         print("오늘 9시 이후 이미 갱신돼 있어 건너뜁니다.")
