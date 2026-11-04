@@ -89,8 +89,8 @@ def build_prompt(rows: list, new_spikes: list) -> str:
         "factors는 정확히 4개(달러·환율, 금리·연준, 금 수급/안전자산, "
         "은 산업 수요 등 오늘 의미 있는 순서)로 쓰세요.\n"
     )
-       return (
-           "\n".join(lines)
-           + ask
-           + SCHEMA_HINT
-       )
+    return (
+        "\n".join(lines)
+        + ask
+        + SCHEMA_HINT
+    )
