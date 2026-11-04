@@ -185,7 +185,7 @@ def main() -> int:
         try:
             result = analyze.call_model(analyze.build_prompt(rows, new_spikes))
             out = analyze.build_rows(rows, result, new_spikes, old)
-            out = spike_notes.fill_missing(out)
+            out = spike_notes.fill_missing(out, rows=rows)
             save("analysis.json", out)
         except Exception as e:
             print("시장분석 작성 실패:", e, file=sys.stderr)
