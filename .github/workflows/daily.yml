@@ -44,6 +44,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: |
           if [ "${{ inputs.backfill }}" = "true" ]; then
             python scripts/pipeline.py --backfill
