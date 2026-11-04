@@ -13,6 +13,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import analyze  # noqa: E402
 import compute  # noqa: E402
 import rates  # noqa: E402
+import spike_notes  # noqa: E402
 
 DATA = pathlib.Path(__file__).resolve().parent.parent / "site" / "data"
 KST = zoneinfo.ZoneInfo("Asia/Seoul")
@@ -183,7 +184,9 @@ def main() -> int:
         new_spikes = pending_spikes(rows, old)
         try:
             result = analyze.call_model(analyze.build_prompt(rows, new_spikes))
-            save("analysis.json", analyze.build_rows(rows, result, new_spikes, old))
+            out = analyze.build_rows(rows, result, new_spikes, old)
+            out = spike_notes.fill_missing(out)
+            save("analysis.json", out)
         except Exception as e:
             print("시장분석 작성 실패:", e, file=sys.stderr)
             wait_card = {
