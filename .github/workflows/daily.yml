@@ -2,7 +2,11 @@ name: daily-gold-dashboard
 
 on:
   schedule:
-    - cron: "0 0 * * 1-6"
+    # 월~토 한국 시간 09:07 (= 00:07 UTC). 정각(:00)은 GitHub가 가장 붐벼서 몇 분 비껴 둡니다.
+    - cron: "7 0 * * 1-6"
+    # 예비 실행 (09:37, 10:07 KST): 위 실행이 지연·누락돼도 오늘 갱신이 되도록 하고, 이미 갱신됐다면 건너뜁니다.
+    - cron: "37 0 * * 1-6"
+    - cron: "7 1 * * 1-6"
   workflow_dispatch:
     inputs:
       backfill:
@@ -22,6 +26,7 @@ concurrency:
 jobs:
   update-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +48,7 @@ jobs:
           if [ "${{ inputs.backfill }}" = "true" ]; then
             python scripts/pipeline.py --backfill
           else
-            python scripts/pipeline.py
+            python scripts/pipeline.py --skip-if-fresh
           fi
 
       - name: Upload scrape diagnostics on failure
@@ -60,6 +65,7 @@ jobs:
           git config user.email "bot@users.noreply.github.com"
           git add site/data
           git diff --cached --quiet || git commit -m "data: $(TZ=Asia/Seoul date +'%Y-%m-%d %H:%M') KST 갱신"
+          git pull --rebase
           git push
 
       - uses: actions/configure-pages@v5
