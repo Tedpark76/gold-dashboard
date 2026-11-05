@@ -153,6 +153,8 @@ def main() -> int:
 
     print("금리 지표를 갱신합니다...")
     rates.update(DATA, now)
+    print("국내 금·은 시세를 갱신합니다...")
+    domestic.update(DATA, now)
 
     fresh = already_fresh(load("meta.json", {}), now)
     if args.skip_if_fresh and not args.backfill and fresh:
