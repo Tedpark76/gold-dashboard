@@ -49,8 +49,8 @@ SCHEMA_HINT = """{
   "checkpoint": {
     "icon": "이모지 1개",
     "title": "오늘의 체크포인트",
-    "summary": "한 줄",
-    "text": "1~2문장"
+    "summary": "금·은 시세에 가장 큰 영향을 줄 핵심 요인 키워드 2~4개를 ' · '로 이은 한 줄 (예: 美 고용지표 · 연준 발언 · 달러 · 국채금리)",
+    "text": "왜 지켜봐야 하는지 짧은 한 문장(30자 이내)"
   },
   "spikes": [
     {"metal": "gold | silver", "date": "YYYY-MM-DD", "text": "급등락 이유 1문장"}
