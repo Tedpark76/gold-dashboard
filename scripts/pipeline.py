@@ -12,6 +12,7 @@ import zoneinfo
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import analyze  # noqa: E402
 import compute  # noqa: E402
+import domestic  # noqa: E402
 import rates  # noqa: E402
 import spike_notes  # noqa: E402
 
