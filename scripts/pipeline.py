@@ -1,4 +1,4 @@
-"""매일 오전 9시(KST) 실행: 수집 → 계산 → 이력 저장 → 시장분석 → 갱신."""
+"""월~토 10:30~18:30(KST) 매시간 갱신 (시장분석은 10:30·14:00에만 새로 작성)."""
 from __future__ import annotations
 
 import argparse
@@ -20,6 +20,7 @@ import spike_notes  # noqa: E402
 DATA = pathlib.Path(__file__).resolve().parent.parent / "site" / "data"
 KST = zoneinfo.ZoneInfo("Asia/Seoul")
 SEED = pathlib.Path(__file__).resolve().parent.parent / "seed" / "spot_history.csv"
+ANALYSIS_SLOTS = [(10, 30), (14, 0)]   # 시장분석을 새로 쓰는 시각(KST)
 
 
 def load(name: str, default):
@@ -74,7 +75,7 @@ def load_seed(path: pathlib.Path = SEED) -> list:
 
 
 def lag_close(series: dict, day: dt.date):
-    """day 오전 9시(KST)에 확정된 직전 미국 거래일 종가."""
+    """day 기준 시각(엑셀 이력은 오전 9시)에 확정된 직전 미국 거래일 종가."""
     earlier = [d for d in series if d < day]
     return series[max(earlier)] if earlier else None
 
@@ -121,6 +122,32 @@ def already_fresh(meta: dict, now: dt.datetime) -> bool:
     return 0 <= gap < 25 * 60
 
 
+def latest_slot(now: dt.datetime):
+    """지금까지 지나온 분석 시각 중 가장 늦은 것. 아직 첫 시각 전이면 None."""
+    slots = [
+        now.replace(hour=h, minute=m, second=0, microsecond=0) for h, m in ANALYSIS_SLOTS
+    ]
+    passed = [t for t in slots if now >= t]
+    return passed[-1] if passed else None
+
+
+def analysis_due(meta: dict, now: dt.datetime) -> bool:
+    """시장분석을 새로 써야 하면 True. 마지막 분석이 가장 최근 분석 시각 이전이면 쓴다."""
+    at = meta.get("analysis_at")
+    if not at:
+        return True
+    try:
+        last = dt.datetime.fromisoformat(at)
+    except ValueError:
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=KST)
+    slot = latest_slot(now)
+    if slot is None:                      # 첫 분석 시각(10:30) 전: 오늘 쓴 적이 없을 때만
+        return last.astimezone(KST).date() < now.date()
+    return last < slot
+
+
 def pending_spikes(rows: list, old: list) -> list:
     """아직 시장분석 문장이 없는 급등락일. 실패 자리표시 문구는 없는 것으로 본다."""
     done = {
@@ -134,6 +161,7 @@ def pending_spikes(rows: list, old: list) -> list:
         s for s in compute.spikes(rows)
         if (f"spike_{s['metal']}", s["date"]) not in done or s["date"] == last_date
     ]
+
 
 def summary_text(rows: list, dom: dict) -> str:
     """알림 메시지에 넣을 한 줄 요약."""
@@ -154,14 +182,15 @@ def write_outputs(rows: list, dom: dict) -> None:
     with open(path, "a", encoding="utf-8") as f:
         f.write("updated=true\n")
         f.write("summary=" + summary_text(rows, dom).replace("\n", " ") + "\n")
-        
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill", action="store_true", help="과거 30일 이력을 새로 채움")
     ap.add_argument("--no-analysis", action="store_true", help="시장분석을 건너뜀")
     ap.add_argument("--force", action="store_true", help="일요일에도 실행")
     ap.add_argument(
-        "--skip-if-fresh", action="store_true", help="오늘 9시 이후 갱신했다면 건너뜀"
+        "--skip-if-fresh", action="store_true", help="직전 갱신이 25분 이내면 건너뜀"
     )
     args = ap.parse_args()
 
@@ -174,10 +203,10 @@ def main() -> int:
     rates.update(DATA, now)
     print("국내 금·은 시세를 갱신합니다...")
     dom = domestic.update(DATA, now)
-    
+
     fresh = already_fresh(load("meta.json", {}), now)
     if args.skip_if_fresh and not args.backfill and fresh:
-        print("오늘 9시 이후 이미 갱신돼 있어 건너뜁니다.")
+        print("직전 갱신이 25분 이내라 건너뜁니다.")
         return 0
 
     import scrape
@@ -200,8 +229,17 @@ def main() -> int:
     save("history.json", rows)
 
     old = load("analysis.json", [])
+    stamp = now.isoformat(timespec="minutes")
+    analysis_at = meta.get("analysis_at")
+    cached = analyze.result_from_rows(old)
+    reuse = cached is not None and not args.backfill and not analysis_due(meta, now)
     if args.no_analysis:
         print("시장분석을 건너뜁니다.")
+    elif reuse:
+        print("시장분석은 10:30, 14:00에만 새로 씁니다. 수치만 갱신합니다.")
+        out = analyze.build_rows(rows, cached, [], old)
+        out = spike_notes.fill_missing(out, rows=rows)
+        save("analysis.json", out)
     else:
         new_spikes = pending_spikes(rows, old)
         try:
@@ -209,6 +247,7 @@ def main() -> int:
             out = analyze.build_rows(rows, result, new_spikes, old)
             out = spike_notes.fill_missing(out, rows=rows)
             save("analysis.json", out)
+            analysis_at = stamp
         except Exception as e:
             print("시장분석 작성 실패:", e, file=sys.stderr)
             wait_card = {
@@ -228,8 +267,10 @@ def main() -> int:
                 "factors": [wait_card] * 4,
             }
             save("analysis.json", analyze.build_rows(rows, fallback, [], old))
-    stamp = now.isoformat(timespec="minutes")
-    save("meta.json", {"sample": False, "updated_at": stamp, "date": rows[-1]["date"]})
+    meta_out = {"sample": False, "updated_at": stamp, "date": rows[-1]["date"]}
+    if analysis_at:
+        meta_out["analysis_at"] = analysis_at
+    save("meta.json", meta_out)
     write_outputs(rows, dom)
     print("완료:", rows[-1]["date"])
     return 0
