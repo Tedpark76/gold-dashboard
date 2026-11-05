@@ -5,6 +5,7 @@ import argparse
 import csv
 import datetime as dt
 import json
+import os
 import pathlib
 import sys
 import zoneinfo
@@ -135,7 +136,26 @@ def pending_spikes(rows: list, old: list) -> list:
         if (f"spike_{s['metal']}", s["date"]) not in done or s["date"] == last_date
     ]
 
+def summary_text(rows: list, dom: dict) -> str:
+    """알림 메시지에 넣을 한 줄 요약."""
+    if dom and "gold_buy" in dom and "silver_buy" in dom:
+        return (
+            f"금 살 때 {dom['gold_buy']:,}원 · 팔 때 {dom['gold_sell']:,}원 / "
+            f"은 살 때 {dom['silver_buy']:,}원 · 팔 때 {dom['silver_sell']:,}원"
+        )
+    last = rows[-1]
+    return f"금 {last['gold_krw_don']:,}원 · 은 {last['silver_krw_don']:,}원 (국제가 환산)"
 
+
+def write_outputs(rows: list, dom: dict) -> None:
+    """GitHub Actions 다음 단계(알림)가 읽을 값을 남긴다. 실제로 갱신했을 때만 호출된다."""
+    path = os.environ.get("GITHUB_OUTPUT")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("updated=true\n")
+        f.write("summary=" + summary_text(rows, dom).replace("\n", " ") + "\n")
+        
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill", action="store_true", help="과거 30일 이력을 새로 채움")
@@ -154,8 +174,8 @@ def main() -> int:
     print("금리 지표를 갱신합니다...")
     rates.update(DATA, now)
     print("국내 금·은 시세를 갱신합니다...")
-    domestic.update(DATA, now)
-
+    dom = domestic.update(DATA, now)
+    
     fresh = already_fresh(load("meta.json", {}), now)
     if args.skip_if_fresh and not args.backfill and fresh:
         print("오늘 9시 이후 이미 갱신돼 있어 건너뜁니다.")
@@ -211,6 +231,7 @@ def main() -> int:
             save("analysis.json", analyze.build_rows(rows, fallback, [], old))
     stamp = now.isoformat(timespec="minutes")
     save("meta.json", {"sample": False, "updated_at": stamp, "date": rows[-1]["date"]})
+    write_outputs(rows, dom)
     print("완료:", rows[-1]["date"])
     return 0
 
