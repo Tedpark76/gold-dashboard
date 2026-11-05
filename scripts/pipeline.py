@@ -108,7 +108,7 @@ def backfill_from_seed(
 
 
 def already_fresh(meta: dict, now: dt.datetime) -> bool:
-    """meta.json의 갱신 시각이 오늘 오전 9시(KST) 이후면 True."""
+    """직전 갱신이 25분 이내면 True (예약이 겹쳐 연달아 돈 실행을 건너뛰는 용도)."""
     if meta.get("sample", True) or not meta.get("updated_at"):
         return False
     try:
@@ -117,9 +117,8 @@ def already_fresh(meta: dict, now: dt.datetime) -> bool:
         return False
     if t.tzinfo is None:
         t = t.replace(tzinfo=KST)
-    t = t.astimezone(KST)
-    cutoff = now.replace(hour=10, minute=30, second=0, microsecond=0)
-    return t >= cutoff and t.date() == now.date()
+    gap = (now - t).total_seconds()
+    return 0 <= gap < 25 * 60
 
 
 def pending_spikes(rows: list, old: list) -> list:
