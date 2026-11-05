@@ -40,6 +40,7 @@ jobs:
           python -m playwright install --with-deps chromium
 
       - name: Update data (scrape, compute, analyze)
+        id: update
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
@@ -76,3 +77,29 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@v4
+        
+      - name: Send notification (Telegram)
+        if: always()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          JOB_STATUS: ${{ job.status }}
+          UPDATED: ${{ steps.update.outputs.updated }}
+          SUMMARY: ${{ steps.update.outputs.summary }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+            echo "텔레그램 설정이 없어 알림을 건너뜁니다."
+            exit 0
+          fi
+          if [ "$JOB_STATUS" = "success" ] && [ "$UPDATED" = "true" ]; then
+            MSG=$(printf '✅ 금·은 대시보드가 업데이트됐어요\n%s\nhttps://tedpark76.github.io/gold-dashboard/' "$SUMMARY")
+          elif [ "$JOB_STATUS" != "success" ]; then
+            MSG=$(printf '⚠️ 금·은 대시보드 업데이트에 실패했어요\n%s' "$RUN_URL")
+          else
+            echo "이미 갱신돼 있어 알림을 보내지 않습니다."
+            exit 0
+          fi
+          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "text=${MSG}" > /dev/null
