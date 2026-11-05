@@ -1,21 +1,5 @@
 [
  {
-  "date": "2026-10-05",
-  "weekday": "월",
-  "note": "",
-  "gold_spot": 4169.16,
-  "gold_fut": 4162.3,
-  "silver_spot": 61.89,
-  "silver_fut": 59.98,
-  "usdkrw": 1345.5,
-  "gold_spread_pct": -0.16,
-  "silver_spread_pct": -3.09,
-  "gold_krw_don": 676324,
-  "silver_krw_don": 10039,
-  "gold_krw_dod_pct": 0.0,
-  "silver_krw_dod_pct": 0.0
- },
- {
   "date": "2026-10-06",
   "weekday": "화",
   "note": "",
@@ -28,8 +12,8 @@
   "silver_spread_pct": -0.65,
   "gold_krw_don": 671400,
   "silver_krw_don": 9893,
-  "gold_krw_dod_pct": -0.73,
-  "silver_krw_dod_pct": -1.45
+  "gold_krw_dod_pct": 0.0,
+  "silver_krw_dod_pct": 0.0
  },
  {
   "date": "2026-10-07",
@@ -400,19 +384,19 @@
   "silver_krw_dod_pct": 3.07
  },
  {
-  "date": "2026-11-04",
-  "weekday": "수",
+  "date": "2026-11-05",
+  "weekday": "목",
   "note": "",
-  "gold_spot": 4023.35,
-  "gold_fut": 4030.5,
-  "silver_spot": 51.75,
-  "silver_fut": 51.79,
-  "usdkrw": 1340.94,
-  "gold_spread_pct": 0.18,
-  "silver_spread_pct": 0.08,
-  "gold_krw_don": 650458,
-  "silver_krw_don": 8366,
-  "gold_krw_dod_pct": 3.06,
-  "silver_krw_dod_pct": 2.39
+  "gold_spot": 4111.3,
+  "gold_fut": 4099.2,
+  "silver_spot": 52.66,
+  "silver_fut": 52.5,
+  "usdkrw": 1338.59,
+  "gold_spread_pct": -0.29,
+  "silver_spread_pct": -0.31,
+  "gold_krw_don": 663512,
+  "silver_krw_don": 8499,
+  "gold_krw_dod_pct": 5.12,
+  "silver_krw_dod_pct": 4.01
  }
 ]
