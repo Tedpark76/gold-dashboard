@@ -117,8 +117,8 @@ def already_fresh(meta: dict, now: dt.datetime) -> bool:
     if t.tzinfo is None:
         t = t.replace(tzinfo=KST)
     t = t.astimezone(KST)
-    nine = now.replace(hour=9, minute=0, second=0, microsecond=0)
-    return t >= nine and t.date() == now.date()
+    cutoff = now.replace(hour=10, minute=30, second=0, microsecond=0)
+    return t >= cutoff and t.date() == now.date()
 
 
 def pending_spikes(rows: list, old: list) -> list:
