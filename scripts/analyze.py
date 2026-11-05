@@ -215,3 +215,36 @@ def build_rows(rows: list, result: dict, new_spikes: list, old_rows: list) -> li
             title=f"{name} {kind_word}", text=text,
         ))
     return out
+
+def result_from_rows(old_rows: list):
+    """저장된 analysis.json에서 AI가 쓴 문장만 모아 build_rows가 받는 모양으로 되돌린다.
+
+    새로 쓰지 않는 시간대에는 문장은 그대로 두고, 수치로 만드는 줄(괴리율 등)만 다시 만든다.
+    쓸 만한 이전 분석이 없으면 None을 돌려준다.
+    """
+    by = {r["id"]: r for r in old_rows}
+    if not all(k in by for k in ("h3", "m1", "m2", "m3")):
+        return None
+    if by["h3"]["text"].startswith("오늘 시장분석 작성에 실패"):
+        return None
+    factors = []
+    for i in range(1, 5):
+        f = by.get(f"f{i}")
+        if not f or f.get("title") == "분석 대기":
+            return None
+        keys = ("icon", "title", "target", "impact", "summary", "text")
+        factors.append({k: f[k] for k in keys})
+    cp = by.get("c1")
+    checkpoint = None
+    if cp:
+        checkpoint = {k: cp[k] for k in ("icon", "title", "summary", "text")}
+    return {
+        "headline_reason": by["h3"]["text"],
+        "common": by["m1"]["text"],
+        "gold": by["m2"]["text"],
+        "silver": by["m3"]["text"],
+        "schedule": by.get("m5", {}).get("text", ""),
+        "factors": factors,
+        "checkpoint": checkpoint,
+        "spikes": [],
+    }
