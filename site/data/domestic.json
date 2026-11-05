@@ -11,8 +11,14 @@
  "silver_buy_abs": 130,
  "silver_sell_chg": 110,
  "silver_sell_abs": 110,
- "date": "2026-11-05",
- "updated_at": "2026-11-05T19:09+09:00",
+ "date": "2026-11-06",
+ "updated_at": "2026-11-06T01:38+09:00",
  "source": "koreagold.kr",
- "prev": {}
+ "prev": {
+  "gold_buy": 780000,
+  "gold_sell": 662500,
+  "silver_buy": 9480,
+  "silver_sell": 8100,
+  "date": "2026-11-05"
+ }
 }
