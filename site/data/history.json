@@ -387,16 +387,16 @@
   "date": "2026-11-05",
   "weekday": "목",
   "note": "",
-  "gold_spot": 4130.69,
-  "gold_fut": 4134.9,
-  "silver_spot": 53.1,
-  "silver_fut": 53.12,
-  "usdkrw": 1344.28,
-  "gold_spread_pct": 0.1,
-  "silver_spread_pct": 0.02,
-  "gold_krw_don": 669475,
-  "silver_krw_don": 8607,
-  "gold_krw_dod_pct": 6.07,
-  "silver_krw_dod_pct": 5.34
+  "gold_spot": 4136.72,
+  "gold_fut": 4140.4,
+  "silver_spot": 53.27,
+  "silver_fut": 53.15,
+  "usdkrw": 1343.78,
+  "gold_spread_pct": 0.09,
+  "silver_spread_pct": -0.24,
+  "gold_krw_don": 670203,
+  "silver_krw_don": 8631,
+  "gold_krw_dod_pct": 6.18,
+  "silver_krw_dod_pct": 5.63
  }
 ]
