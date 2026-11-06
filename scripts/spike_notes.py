@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+import time
 
 import analyze
 
@@ -31,7 +32,7 @@ def context_line(rows: list, day: str, items: list) -> str:
     for m, _pct in items:
         spot = (cur[f"{m}_spot"] / prev[f"{m}_spot"] - 1) * 100
         parts.append(f"국제 {NAMES[m]} 현물 {spot:+.2f}%")
-    window = f"한국시간 {prev['date']} 오전 9시부터 {day} 오전 9시까지"
+    window = f"한국시간 {prev['date']} 마지막 갱신부터 {day} 마지막 갱신까지"
     return f"참고 수치({window}): " + ", ".join(parts) + f", 달러/원 {fx:+.2f}%."
 
 
@@ -53,10 +54,10 @@ def data_note(rows: list, day: str, metal: str, pct: float) -> str:
 def build_prompt(day: str, items: list, context: str = "") -> str:
     moves = ", ".join(f"{NAMES[m]} {pct:+.2f}%" for m, pct in items)
     return (
-        f"{day} 오전 9시(KST) 기준 금·은 원화 시세가 전일 대비 크게 움직였어요: "
+        f"{day} 한국시간 기준 금·은 원화 시세가 전일 대비 크게 움직였어요: "
         f"{moves}. {context} "
-        "시세는 한국시간 오전 9시 기준이라, 그 움직임은 보통 전날(한국시간 "
-        "전날 오전 9시 이후)의 미국 장에서 일어났어요. "
+        "하루 중 마지막 갱신값 기준이라, 그 움직임은 전날 밤 미국 장과 "
+        "당일 아시아 장에서 일어났어요. "
         "날짜가 토요일·일요일·월요일이면 직전 금요일 미국 장 뉴스를 보세요. "
         "웹 검색으로 그 구간의 국제 금·은 시장 뉴스를 확인해서, "
         "금속마다 움직인 이유를 한 문장(80자 이내)으로 쓰세요. "
@@ -71,7 +72,7 @@ def call_day(day: str, items: list, context: str = "") -> dict:
     """급등락일 하나의 설명을 모델에게 받는다. 반환: {"gold": 문장, "silver": 문장}"""
     import anthropic
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(timeout=100.0, max_retries=0)
     msg = client.messages.create(
         model=analyze.MODEL,
         max_tokens=1500,
@@ -84,14 +85,23 @@ def call_day(day: str, items: list, context: str = "") -> dict:
     return analyze.strip_tags(analyze.extract_json(text))
 
 
-def fill_missing(analysis_rows: list, rows=None, call=None, limit: int = 8) -> list:
-    """자리표시 문구로 남은 급등락일을 날짜별로 다시 작성한다."""
+def fill_missing(
+    analysis_rows: list, rows=None, call=None, limit: int = 4, budget: float = 240.0
+) -> list:
+    """자리표시 문구로 남은 급등락일을 날짜별로 다시 작성한다.
+
+    한 번에 최대 limit개 날짜까지, 전체 budget초 안에서만 시도한다 (오래 붙잡히지 않도록).
+    """
     call = call or call_day
+    started = time.monotonic()
     by_date = {}
     for r in analysis_rows:
         if r["kind"].startswith("spike_") and r.get("text") == analyze.MISSING_TEXT:
             by_date.setdefault(r["date"], []).append(r)
     for day in sorted(by_date, reverse=True)[:limit]:
+        if time.monotonic() - started > budget:
+            print("급등락일 설명 보완 시간이 넘어 나머지는 다음 실행으로 미룹니다.")
+            break
         items = [(r["kind"][len("spike_"):], float(r["pct"])) for r in by_date[day]]
         try:
             got = call(day, items, context_line(rows, day, items))
