@@ -2,14 +2,23 @@ name: daily-gold-dashboard
 
 on:
   schedule:
-    - cron: "30 1-9 * * 1-6"
-    - cron: "0 5 * * 1-6"
+    # 한국시간 10:10, 12:10, 13:10, 14:10, 16:10, 18:10 (= UTC 01, 03, 04, 05, 07, 09시 10분).
+    # 각 시각의 :10, :25, :40에 세 번 시도합니다. GitHub 예약이 늦거나 빠져도 안전하도록 한 것이고,
+    # 이미 갱신했거나 갱신할 시각이 아니면 아무것도 하지 않고 바로 끝납니다.
+    - cron: "10,25,40 1,3,4,5,7,9 * * 1-6"
   workflow_dispatch:
     inputs:
       backfill:
         description: "과거 30일 이력을 새로 채우기 (처음 한 번)"
         type: boolean
         default: false
+      mode:
+        description: "manual = 지금 바로 갱신 / auto = 정해진 시각에만 갱신"
+        type: choice
+        options:
+          - manual
+          - auto
+        default: manual
 
 permissions:
   contents: write
@@ -24,58 +33,58 @@ jobs:
   update-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RUN_MODE: ${{ github.event_name == 'schedule' && 'auto' || inputs.mode || 'manual' }}
+      RUN_BACKFILL: ${{ inputs.backfill == true && '--backfill' || '' }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Decide what to update now
+        id: gate
+        run: python3 scripts/pipeline.py --check --mode "$RUN_MODE" $RUN_BACKFILL
+
       - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'true'
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
+        if: steps.gate.outputs.run == 'true'
+        run: pip install -r requirements.txt
 
       - name: Update data (scrape, compute, analyze)
         id: update
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 10
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
-        run: |
-          if [ "${{ inputs.backfill }}" = "true" ]; then
-            python scripts/pipeline.py --backfill
-          else
-            python scripts/pipeline.py --skip-if-fresh
-          fi
-
-      - name: Upload scrape diagnostics on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: diagnostics
-          path: diagnostics/
-          if-no-files-found: ignore
+        run: python scripts/pipeline.py --mode "$RUN_MODE" $RUN_BACKFILL
 
       - name: Commit updated data
+        if: steps.gate.outputs.run == 'true'
         run: |
           git config user.name "gold-dashboard-bot"
           git config user.email "bot@users.noreply.github.com"
           git add site/data
-          git diff --cached --quiet || git commit -m "data: $(TZ=Asia/Seoul date +'%Y-%m-%d %H:%M') KST 갱신"
+          git diff --cached --quiet || git commit -m "data: update"
           git pull --rebase
           git push
 
       - uses: actions/configure-pages@v5
+        if: steps.gate.outputs.run == 'true'
 
       - uses: actions/upload-pages-artifact@v3
+        if: steps.gate.outputs.run == 'true'
         with:
           path: site
 
       - id: deployment
+        if: steps.gate.outputs.run == 'true'
         uses: actions/deploy-pages@v4
-        
+
       - name: Send notification (Telegram)
         if: always()
         env:
@@ -83,6 +92,8 @@ jobs:
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
           JOB_STATUS: ${{ job.status }}
           UPDATED: ${{ steps.update.outputs.updated }}
+          KIND: ${{ steps.update.outputs.kind }}
+          ANALYSIS: ${{ steps.update.outputs.analysis }}
           SUMMARY: ${{ steps.update.outputs.summary }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -90,12 +101,19 @@ jobs:
             echo "텔레그램 설정이 없어 알림을 건너뜁니다."
             exit 0
           fi
+          SITE="https://tedpark76.github.io/gold-dashboard/"
           if [ "$JOB_STATUS" = "success" ] && [ "$UPDATED" = "true" ]; then
-            MSG=$(printf '✅ 금·은 대시보드가 업데이트됐어요\n%s\nhttps://tedpark76.github.io/gold-dashboard/' "$SUMMARY")
+            if [ "$KIND" = "analysis" ]; then
+              MSG=$(printf '📝 금·은 시장분석이 업데이트됐어요\n%s' "$SITE")
+            else
+              NOTE=""
+              if [ "$ANALYSIS" = "true" ]; then NOTE=" (시장분석 포함)"; fi
+              MSG=$(printf '✅ 금·은 대시보드가 업데이트됐어요%s\n%s\n%s' "$NOTE" "$SUMMARY" "$SITE")
+            fi
           elif [ "$JOB_STATUS" != "success" ]; then
             MSG=$(printf '⚠️ 금·은 대시보드 업데이트에 실패했어요\n%s' "$RUN_URL")
           else
-            echo "이미 갱신돼 있어 알림을 보내지 않습니다."
+            echo "지금은 갱신할 시각이 아니거나 이미 갱신돼 있어 알림을 보내지 않습니다."
             exit 0
           fi
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
