@@ -49,7 +49,7 @@ SCHEMA_HINT = """{
   "checkpoint": {
     "icon": "이모지 1개",
     "title": "오늘의 체크포인트",
-    "summary": "금·은 시세에 가장 큰 영향을 줄 핵심 요인 키워드 2~4개를 ' · '로 이은 한 줄 (예: 美 고용지표 · 연준 발언 · 달러 · 국채금리)",
+    "summary": "금·은 시세에 가장 큰 영향을 줄 핵심 요인 키워드 2~4개를 ' · '로 이은 한 줄",
     "text": "왜 지켜봐야 하는지 짧은 한 문장(30자 이내)"
   },
   "spikes": [
@@ -67,7 +67,7 @@ def build_prompt(rows: list, new_spikes: list) -> str:
     y = rows[-2] if len(rows) > 1 else rows[-1]
     gs, ss = t["gold_spread_pct"], t["silver_spread_pct"]
     lines = [
-        f"기준일: {t['date']} ({t['weekday']}) 오전 9시(KST), 국제시장 기준",
+        f"기준일: {t['date']} ({t['weekday']}) 한국시간 장중 갱신, 국제시장 기준",
         f"원화 금 {t['gold_krw_don']:,}원/돈 "
         f"(전일 대비 {t['gold_krw_dod_pct']:+.2f}%)",
         f"원화 은 {t['silver_krw_don']:,}원/돈 "
@@ -102,6 +102,7 @@ def build_prompt(rows: list, new_spikes: list) -> str:
         "이 예시를 억지로 모두 넣지 마세요.) "
         "달러·금리 이야기는 3, 4번에 반복하지 마세요.\n"
     )
+
     return "\n".join(lines) + ask + SCHEMA_HINT
 
 
@@ -129,7 +130,7 @@ def extract_json(text: str) -> dict:
 def call_model(prompt: str) -> dict:
     import anthropic
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(timeout=240.0, max_retries=1)
     msg = client.messages.create(
         model=MODEL,
         max_tokens=6000,
@@ -226,6 +227,7 @@ def build_rows(rows: list, result: dict, new_spikes: list, old_rows: list) -> li
             title=f"{name} {kind_word}", text=text,
         ))
     return out
+
 
 def result_from_rows(old_rows: list):
     """저장된 analysis.json에서 AI가 쓴 문장만 모아 build_rows가 받는 모양으로 되돌린다.
