@@ -1,4 +1,8 @@
-"""월~토 10:30~18:30(KST) 매시간 갱신 (시장분석은 10:30·14:00에만 새로 작성)."""
+"""한국시간 기준 갱신 (월~토).
+
+- 시세: 10:10, 12:10, 14:10, 16:10, 18:10
+- 시장분석: 10:10, 13:10
+"""
 from __future__ import annotations
 
 import argparse
@@ -20,7 +24,9 @@ import spike_notes  # noqa: E402
 DATA = pathlib.Path(__file__).resolve().parent.parent / "site" / "data"
 KST = zoneinfo.ZoneInfo("Asia/Seoul")
 SEED = pathlib.Path(__file__).resolve().parent.parent / "seed" / "spot_history.csv"
-ANALYSIS_SLOTS = [(10, 30), (14, 0)]   # 시장분석을 새로 쓰는 시각(KST)
+PRICE_SLOTS = [(10, 10), (12, 10), (14, 10), (16, 10), (18, 10)]   # 시세 갱신 시각(KST)
+ANALYSIS_SLOTS = [(10, 10), (13, 10)]                              # 시장분석 시각(KST)
+GRACE_MIN = 100   # 예약이 늦어도 이 시간(분) 안에 도착한 실행만 해당 시각으로 인정
 
 
 def load(name: str, default):
@@ -108,44 +114,59 @@ def backfill_from_seed(
     return compute.apply_dod(rows)
 
 
-def already_fresh(meta: dict, now: dt.datetime) -> bool:
-    """직전 갱신이 25분 이내면 True (예약이 겹쳐 연달아 돈 실행을 건너뛰는 용도)."""
-    if meta.get("sample", True) or not meta.get("updated_at"):
-        return False
+def _parse_time(iso):
+    """ISO 문자열을 한국시간 datetime으로. 못 읽으면 None."""
+    if not iso:
+        return None
     try:
-        t = dt.datetime.fromisoformat(meta["updated_at"])
+        t = dt.datetime.fromisoformat(str(iso))
     except ValueError:
-        return False
+        return None
     if t.tzinfo is None:
         t = t.replace(tzinfo=KST)
-    gap = (now - t).total_seconds()
-    return 0 <= gap < 25 * 60
+    return t.astimezone(KST)
 
 
-def latest_slot(now: dt.datetime):
-    """지금까지 지나온 분석 시각 중 가장 늦은 것. 아직 첫 시각 전이면 None."""
-    slots = [
-        now.replace(hour=h, minute=m, second=0, microsecond=0) for h, m in ANALYSIS_SLOTS
-    ]
-    passed = [t for t in slots if now >= t]
+def latest_slot(now: dt.datetime, slots=None):
+    """지금까지 지나온 시각 중 가장 늦은 것. 첫 시각 전이면 None."""
+    slots = slots or ANALYSIS_SLOTS
+    times = [now.replace(hour=h, minute=m, second=0, microsecond=0) for h, m in slots]
+    passed = [t for t in times if now >= t]
     return passed[-1] if passed else None
 
 
-def analysis_due(meta: dict, now: dt.datetime) -> bool:
-    """시장분석을 새로 써야 하면 True. 마지막 분석이 가장 최근 분석 시각 이전이면 쓴다."""
-    at = meta.get("analysis_at")
-    if not at:
-        return True
-    try:
-        last = dt.datetime.fromisoformat(at)
-    except ValueError:
-        return True
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=KST)
-    slot = latest_slot(now)
-    if slot is None:                      # 첫 분석 시각(10:30) 전: 오늘 쓴 적이 없을 때만
-        return last.astimezone(KST).date() < now.date()
-    return last < slot
+def slot_due(now: dt.datetime, slots, last_iso, grace_min=None) -> bool:
+    """가장 최근 시각이 지났는데 그 이후로 아직 갱신하지 않았으면 True.
+
+    grace_min이 있으면 그 시각에서 너무 늦게(grace_min분 초과) 도착한 실행은 False.
+    """
+    slot = latest_slot(now, slots)
+    if slot is None:
+        return False
+    if grace_min is not None and now - slot > dt.timedelta(minutes=grace_min):
+        return False
+    last = _parse_time(last_iso)
+    return last is None or last < slot
+
+
+def price_due(meta: dict, now: dt.datetime) -> bool:
+    return slot_due(now, PRICE_SLOTS, meta.get("updated_at"), GRACE_MIN)
+
+
+def analysis_due(meta: dict, now: dt.datetime, grace=GRACE_MIN) -> bool:
+    return slot_due(now, ANALYSIS_SLOTS, meta.get("analysis_at"), grace)
+
+
+def plan(meta: dict, now: dt.datetime, mode: str, backfill: bool = False):
+    """(시세를 갱신할지, 시장분석을 새로 쓸지).
+
+    auto: 정해진 시각에만. manual: 시세는 지금 바로, 분석은 아직 못 쓴 시각이 있을 때만.
+    """
+    if backfill:
+        return True, True
+    if mode == "manual":
+        return True, analysis_due(meta, now, None)
+    return price_due(meta, now), analysis_due(meta, now)
 
 
 def pending_spikes(rows: list, old: list) -> list:
@@ -174,104 +195,140 @@ def summary_text(rows: list, dom: dict) -> str:
     return f"금 {last['gold_krw_don']:,}원 · 은 {last['silver_krw_don']:,}원 (국제가 환산)"
 
 
-def write_outputs(rows: list, dom: dict) -> None:
-    """GitHub Actions 다음 단계(알림)가 읽을 값을 남긴다. 실제로 갱신했을 때만 호출된다."""
+def _append_output(lines: list) -> None:
     path = os.environ.get("GITHUB_OUTPUT")
     if not path:
         return
     with open(path, "a", encoding="utf-8") as f:
-        f.write("updated=true\n")
-        f.write("summary=" + summary_text(rows, dom).replace("\n", " ") + "\n")
+        for line in lines:
+            f.write(line.replace("\n", " ") + "\n")
+
+
+def write_gate(run: bool) -> None:
+    """워크플로의 다음 단계들이 실행될지 알려 준다."""
+    _append_output(["run=" + ("true" if run else "false")])
+
+
+def write_outputs(rows: list, dom: dict, kind: str, analysis: bool) -> None:
+    """알림 단계가 읽을 값. kind는 'price'(시세 갱신) 또는 'analysis'(분석만 갱신)."""
+    _append_output([
+        "updated=true",
+        "kind=" + kind,
+        "analysis=" + ("true" if analysis else "false"),
+        "summary=" + summary_text(rows, dom),
+    ])
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", choices=["auto", "manual"], default="manual",
+                    help="auto: 정해진 시각에만 / manual: 지금 바로")
+    ap.add_argument("--check", action="store_true", help="실행 여부만 알려 주고 끝낸다")
     ap.add_argument("--backfill", action="store_true", help="과거 30일 이력을 새로 채움")
     ap.add_argument("--no-analysis", action="store_true", help="시장분석을 건너뜀")
     ap.add_argument("--force", action="store_true", help="일요일에도 실행")
-    ap.add_argument(
-        "--skip-if-fresh", action="store_true", help="직전 갱신이 25분 이내면 건너뜀"
-    )
+    ap.add_argument("--skip-if-fresh", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     now = dt.datetime.now(KST)
+    meta = load("meta.json", {})
+    rows = load("history.json", [])
     if now.weekday() == 6 and not args.force:
         print("일요일은 휴무라 갱신하지 않습니다.")
+        if args.check:
+            write_gate(False)
         return 0
 
-    print("금리 지표를 갱신합니다...")
-    rates.update(DATA, now)
-    print("국내 금·은 시세를 갱신합니다...")
-    dom = domestic.update(DATA, now)
-
-    fresh = already_fresh(load("meta.json", {}), now)
-    if args.skip_if_fresh and not args.backfill and fresh:
-        print("직전 갱신이 25분 이내라 건너뜁니다.")
+    do_prices, do_analysis = plan(meta, now, args.mode, args.backfill)
+    if not rows or meta.get("sample", True):
+        do_prices, do_analysis = True, True            # 처음이거나 샘플 상태
+    if args.no_analysis:
+        do_analysis = False
+    print(f"한국시간 {now:%m-%d %H:%M} | 시세 갱신: {do_prices} | 시장분석: {do_analysis}")
+    if args.check:
+        write_gate(do_prices or do_analysis)
+        return 0
+    if not (do_prices or do_analysis):
+        print("지금은 정해진 갱신 시각이 아니거나 이미 갱신돼 있어 건너뜁니다.")
         return 0
 
-    import scrape
+    dom = load("domestic.json", {})
+    updated_at = meta.get("updated_at")
+    if do_prices:
+        print("금리 지표를 갱신합니다...")
+        rates.update(DATA, now)
+        print("국내 금·은 시세를 갱신합니다...")
+        dom = domestic.update(DATA, now)
 
-    rows = load("history.json", [])
-    meta = load("meta.json", {})
-    if args.backfill or meta.get("sample", True) or not rows:
-        print("과거 30일 이력을 조사합니다...")
-        hist = scrape.scrape_histories()
-        seed = load_seed()
-        if seed:
-            rows = backfill_from_seed(seed, hist, today=now.date())
-        else:
-            rows = backfill_rows(hist, today=now.date())
+        import scrape
 
-    print("현재 시세를 가져옵니다...")
-    live = scrape.scrape_live()
-    row = compute.build_row(now.date(), **live)
-    rows = compute.trim(compute.upsert(rows, row))
-    save("history.json", rows)
+        if args.backfill or meta.get("sample", True) or not rows:
+            print("과거 30일 이력을 조사합니다...")
+            hist = scrape.scrape_histories()
+            seed = load_seed()
+            if seed:
+                rows = backfill_from_seed(seed, hist, today=now.date())
+            else:
+                rows = backfill_rows(hist, today=now.date())
+
+        print("현재 시세를 가져옵니다...")
+        live = scrape.scrape_live()
+        fetched = dt.datetime.now(KST)
+        row = compute.build_row(now.date(), **live)
+        rows = compute.trim(compute.upsert(rows, row))
+        save("history.json", rows)
+        updated_at = fetched.isoformat(timespec="minutes")
 
     old = load("analysis.json", [])
-    stamp = now.isoformat(timespec="minutes")
     analysis_at = meta.get("analysis_at")
+    analysis_ran = False
     cached = analyze.result_from_rows(old)
-    reuse = cached is not None and not args.backfill and not analysis_due(meta, now)
     if args.no_analysis:
         print("시장분석을 건너뜁니다.")
-    elif reuse:
-        print("시장분석은 10:30, 14:00에만 새로 씁니다. 수치만 갱신합니다.")
-        out = analyze.build_rows(rows, cached, [], old)
-        out = spike_notes.fill_missing(out, rows=rows)
-        save("analysis.json", out)
-    else:
+    elif do_analysis or cached is None:
         new_spikes = pending_spikes(rows, old)
         try:
             result = analyze.call_model(analyze.build_prompt(rows, new_spikes))
             out = analyze.build_rows(rows, result, new_spikes, old)
             out = spike_notes.fill_missing(out, rows=rows)
             save("analysis.json", out)
-            analysis_at = stamp
+            analysis_at = dt.datetime.now(KST).isoformat(timespec="minutes")
+            analysis_ran = True
         except Exception as e:
             print("시장분석 작성 실패:", e, file=sys.stderr)
-            wait_card = {
-                "icon": "ℹ️",
-                "title": "분석 대기",
-                "target": "금·은",
-                "impact": "flat",
-                "summary": "시장분석을 불러오지 못했어요",
-                "text": "잠시 후 다시 갱신될 때까지 기다려 주세요.",
-            }
-            fallback = {
-                "headline_reason": "오늘 시장분석 작성에 실패해 시세만 갱신했어요.",
-                "common": "",
-                "gold": "",
-                "silver": "",
-                "schedule": "",
-                "factors": [wait_card] * 4,
-            }
-            save("analysis.json", analyze.build_rows(rows, fallback, [], old))
-    meta_out = {"sample": False, "updated_at": stamp, "date": rows[-1]["date"]}
+            if cached is not None:        # 이전 분석이 있으면 그 문장을 두고 수치만 새로 만든다
+                out = analyze.build_rows(rows, cached, [], old)
+                save("analysis.json", out)
+            else:
+                wait_card = {
+                    "icon": "ℹ️",
+                    "title": "분석 대기",
+                    "target": "금·은",
+                    "impact": "flat",
+                    "summary": "시장분석을 불러오지 못했어요",
+                    "text": "잠시 후 다시 갱신될 때까지 기다려 주세요.",
+                }
+                fallback = {
+                    "headline_reason": "오늘 시장분석 작성에 실패해 시세만 갱신했어요.",
+                    "common": "",
+                    "gold": "",
+                    "silver": "",
+                    "schedule": "",
+                    "factors": [wait_card] * 4,
+                }
+                save("analysis.json", analyze.build_rows(rows, fallback, [], old))
+    else:
+        print("시장분석은 10:10, 13:10에만 새로 씁니다. 수치만 갱신합니다.")
+        out = analyze.build_rows(rows, cached, [], old)
+        out = spike_notes.fill_missing(out, rows=rows)
+        save("analysis.json", out)
+
+    meta_out = dict(meta)
+    meta_out.update({"sample": False, "updated_at": updated_at, "date": rows[-1]["date"]})
     if analysis_at:
         meta_out["analysis_at"] = analysis_at
     save("meta.json", meta_out)
-    write_outputs(rows, dom)
+    write_outputs(rows, dom, "price" if do_prices else "analysis", analysis_ran)
     print("완료:", rows[-1]["date"])
     return 0
 
