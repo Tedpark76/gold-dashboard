@@ -307,16 +307,16 @@
   "date": "2026-11-11",
   "weekday": "수",
   "note": "",
-  "gold_spot": 4062.77,
-  "gold_fut": 4067.3,
-  "silver_spot": 53.05,
-  "silver_fut": 52.99,
-  "usdkrw": 1334.38,
-  "gold_spread_pct": 0.11,
-  "silver_spread_pct": -0.12,
-  "gold_krw_don": 653618,
-  "silver_krw_don": 8534,
-  "gold_krw_dod_pct": 3.56,
-  "silver_krw_dod_pct": 4.44
+  "gold_spot": 4057.3,
+  "gold_fut": 4066.7,
+  "silver_spot": 52.98,
+  "silver_fut": 53.06,
+  "usdkrw": 1332.86,
+  "gold_spread_pct": 0.23,
+  "silver_spread_pct": 0.13,
+  "gold_krw_don": 651994,
+  "silver_krw_don": 8515,
+  "gold_krw_dod_pct": 3.3,
+  "silver_krw_dod_pct": 4.21
  }
 ]
