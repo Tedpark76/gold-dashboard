@@ -35,7 +35,16 @@ SCHEMA_HINT = """{
   "common": "금·은 공통 요인 1~2문장",
   "gold": "금 고유 요인 1~2문장",
   "silver": "은 고유 요인 1~2문장",
-  "schedule": "오늘 주목할 일정 1문장 (없으면 빈 문자열)",
+  "indicators": [
+    {
+      "name": "지표 이름 (예: 미국 소비자물가지수 CPI)",
+      "period": "대상 기간 (예: 10월)",
+      "value": "발표 값 (예: 전년 대비 +3.0%)",
+      "change": "직전 대비 변화 (예: 전월 +2.9%에서 +0.1%p 상승)",
+      "forecast": "시장 예상치 (없으면 빈 문자열)",
+      "release": "발표일 YYYY-MM-DD"
+    }
+  ],
   "factors": [
     {
       "icon": "이모지 1개",
@@ -100,7 +109,12 @@ def build_prompt(rows: list, new_spikes: list) -> str:
         "(참고 예: 금은 아시아 장신구 수요, 중국·인도 소매 매수, "
         "각국 중앙은행 매수 / 은은 데이터센터·반도체·통신기기·AI 등 산업 수요. "
         "이 예시를 억지로 모두 넣지 마세요.) "
-        "달러·금리 이야기는 3, 4번에 반복하지 마세요.\n"
+        "달러·금리 이야기는 3, 4번에 반복하지 마세요. "
+        "소비자물가(CPI), 생산자물가(PPI), 고용지표, PCE, GDP, ISM·PMI, 소매판매 같은 "
+        "경제지표를 요인으로 언급하려면 반드시 웹 검색으로 최신 공식 발표 수치를 확인해서 "
+        "indicators에 발표 값, 직전 대비 변화, 시장 예상치(있으면), 발표일을 쓰고, "
+        "글(common, factors, checkpoint)에도 핵심 수치를 함께 쓰세요. "
+        "수치를 확인하지 못한 지표는 글에 쓰지 마세요.\n"
     )
 
     return "\n".join(lines) + ask + SCHEMA_HINT
@@ -127,6 +141,115 @@ def extract_json(text: str) -> dict:
     return json.loads(m.group(0))
 
 
+INDICATORS = [
+    ("소비자물가", r"소비자\s?물가|CPI"),
+    ("생산자물가", r"생산자\s?물가|PPI"),
+    ("PCE 물가", r"PCE"),
+    ("고용지표", r"고용\s?지표|고용\s?보고서|비농업|실업률|신규\s?고용|ADP"),
+    ("GDP", r"GDP|국내총생산"),
+    ("ISM·PMI", r"ISM|PMI"),
+    ("소매판매", r"소매\s?판매"),
+]
+
+
+def result_text(result: dict) -> str:
+    """분석 글 전체를 한 덩어리로 (어떤 지표를 언급했는지 찾는 용도)."""
+    parts = [result.get("headline_reason", ""), result.get("common", ""),
+             result.get("gold", ""), result.get("silver", "")]
+    for f in result.get("factors", []):
+        parts += [f.get("title", ""), f.get("summary", ""), f.get("text", "")]
+    cp = result.get("checkpoint") or {}
+    parts += [cp.get("summary", ""), cp.get("text", "")]
+    return " ".join(str(x) for x in parts)
+
+
+def has_figures(ind: dict) -> bool:
+    return bool(re.search(r"\d", str(ind.get("value", "")) + str(ind.get("change", ""))))
+
+
+def missing_indicators(result: dict) -> list:
+    """글에서 언급했는데 indicators에 수치가 없는 지표 [(이름, 패턴)]."""
+    text = result_text(result)
+    have = result.get("indicators") or []
+    out = []
+    for name, pat in INDICATORS:
+        if not re.search(pat, text):
+            continue
+        if not any(re.search(pat, str(i.get("name", ""))) and has_figures(i) for i in have):
+            out.append((name, pat))
+    return out
+
+
+def repair_prompt(result: dict, names: list) -> str:
+    return (
+        "아래는 오늘 쓴 금·은 시장분석 글입니다. 이 글에서 언급한 경제지표 ("
+        + ", ".join(names)
+        + ")의 가장 최근 공식 발표 수치를 웹 검색으로 확인하세요. "
+        "지표마다 발표 값, 직전 대비 변화, 시장 예상치(있으면), 발표일을 찾아 JSON만 출력하세요: "
+        '{"indicators": [{"name": "...", "period": "...", "value": "...", '
+        '"change": "...", "forecast": "...", "release": "YYYY-MM-DD"}]} '
+        "수치를 확인하지 못한 지표는 목록에서 빼세요.\n\n" + result_text(result)[:1500]
+    )
+
+
+def call_repair(result: dict, names: list) -> list:
+    import anthropic
+
+    client = anthropic.Anthropic(timeout=150.0, max_retries=0)
+    msg = client.messages.create(
+        model=MODEL,
+        max_tokens=2000,
+        system=SYSTEM,
+        tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
+        messages=[{"role": "user", "content": repair_prompt(result, names)}],
+    )
+    text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+    text = re.sub(r"</?cite[^>]*>", "", text)
+    return strip_tags(extract_json(text)).get("indicators", [])
+
+
+def ensure_indicators(result: dict, repair=None) -> dict:
+    """글에서 언급한 경제지표에 수치가 빠졌으면 한 번 더 확인해 채운다.
+
+    끝내 못 찾으면 수치를 지어내지 않고 '수치 확인 필요'로 표시해 누락이 눈에 띄게 한다.
+    """
+    repair = repair or call_repair
+    result.setdefault("indicators", [])
+    missing = missing_indicators(result)
+    if missing:
+        try:
+            extra = repair(result, [n for n, _ in missing])
+        except Exception as e:
+            print("경제지표 수치 보완 실패:", e)
+            extra = []
+        for it in extra or []:
+            if isinstance(it, dict) and has_figures(it):
+                result["indicators"].append(it)
+        for name, _pat in missing_indicators(result):
+            result["indicators"].append(
+                {"name": name, "period": "", "value": "수치 확인 필요",
+                 "change": "", "forecast": "", "release": ""}
+            )
+    return result
+
+
+def indicator_line(ind: dict) -> str:
+    """경제지표 한 줄: 이름(기간): 값, 직전 대비, 예상 · 발표일"""
+    name = str(ind.get("name", "")).strip()
+    period = str(ind.get("period", "")).strip()
+    head = f"{name}({period})" if period else name
+    bits = [str(ind.get("value", "")).strip()]
+    if str(ind.get("change", "")).strip():
+        bits.append(str(ind["change"]).strip())
+    if str(ind.get("forecast", "")).strip():
+        bits.append("예상 " + str(ind["forecast"]).strip())
+    line = head + ": " + ", ".join(b for b in bits if b)
+    rel = str(ind.get("release", "")).strip()
+    if len(rel) >= 10:
+        line += " · " + rel[5:10].replace("-", "/") + " 발표"
+    return line
+
+
 def call_model(prompt: str) -> dict:
     import anthropic
 
@@ -140,7 +263,7 @@ def call_model(prompt: str) -> dict:
     )
     text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
     text = re.sub(r"</?cite[^>]*>", "", text)
-    return strip_tags(extract_json(text))
+    return ensure_indicators(strip_tags(extract_json(text)))
 
 
 def build_rows(rows: list, result: dict, new_spikes: list, old_rows: list) -> list:
@@ -179,10 +302,16 @@ def build_rows(rows: list, result: dict, new_spikes: list, old_rows: list) -> li
              text=result["silver"]),
         dict(id="m4", kind="spread", no=4, date=date, title="선물·현물 괴리",
              text=spread_line),
-        dict(id="m5", kind="schedule", no=5, date=date, title="오늘의 주목 일정",
-             text=result.get("schedule", "")),
         dict(id="n1", kind="notice", no=6, date=date, title="안내", text=NOTICE),
     ]
+    for i, ind in enumerate(result.get("indicators") or [], start=1):
+        out.append(dict(
+            id=f"i{i}", kind="indicator", no=i, date=date,
+            title=str(ind.get("name", "")), period=str(ind.get("period", "")),
+            value=str(ind.get("value", "")), change=str(ind.get("change", "")),
+            forecast=str(ind.get("forecast", "")), release=str(ind.get("release", "")),
+            text=indicator_line(ind),
+        ))
     for i, f in enumerate(result["factors"][:4], start=1):
         out.append(dict(
             id=f"f{i}", kind="factor", no=i, date=date,
@@ -251,12 +380,17 @@ def result_from_rows(old_rows: list):
     checkpoint = None
     if cp:
         checkpoint = {k: cp[k] for k in ("icon", "title", "summary", "text")}
+    indicators = [
+        {k: r.get(k, "") for k in ("name", "period", "value", "change", "forecast", "release")}
+        | {"name": r.get("title", "")}
+        for r in old_rows if r.get("kind") == "indicator"
+    ]
     return {
         "headline_reason": by["h3"]["text"],
         "common": by["m1"]["text"],
         "gold": by["m2"]["text"],
         "silver": by["m3"]["text"],
-        "schedule": by.get("m5", {}).get("text", ""),
+        "indicators": indicators,
         "factors": factors,
         "checkpoint": checkpoint,
         "spikes": [],
