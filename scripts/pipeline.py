@@ -226,6 +226,7 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="실행 여부만 알려 주고 끝낸다")
     ap.add_argument("--backfill", action="store_true", help="과거 30일 이력을 새로 채움")
     ap.add_argument("--no-analysis", action="store_true", help="시장분석을 건너뜀")
+    ap.add_argument("--analysis", action="store_true", help="시장분석을 지금 새로 씀")
     ap.add_argument("--force", action="store_true", help="일요일에도 실행")
     ap.add_argument("--skip-if-fresh", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
@@ -242,6 +243,8 @@ def main() -> int:
     do_prices, do_analysis = plan(meta, now, args.mode, args.backfill)
     if not rows or meta.get("sample", True):
         do_prices, do_analysis = True, True            # 처음이거나 샘플 상태
+    if args.analysis:
+        do_analysis = True                             # 직접 요청: 정해진 시각이 아니어도 새로 쓴다
     if args.no_analysis:
         do_analysis = False
     print(f"한국시간 {now:%m-%d %H:%M} | 시세 갱신: {do_prices} | 시장분석: {do_analysis}")
@@ -313,7 +316,6 @@ def main() -> int:
                     "common": "",
                     "gold": "",
                     "silver": "",
-                    "schedule": "",
                     "factors": [wait_card] * 4,
                 }
                 save("analysis.json", analyze.build_rows(rows, fallback, [], old))
