@@ -12,6 +12,10 @@ on:
         description: "과거 30일 이력을 새로 채우기 (처음 한 번)"
         type: boolean
         default: false
+      analysis:
+        description: "시장분석도 지금 새로 쓰기"
+        type: boolean
+        default: false
       mode:
         description: "manual = 지금 바로 갱신 / auto = 정해진 시각에만 갱신"
         type: choice
@@ -36,12 +40,13 @@ jobs:
     env:
       RUN_MODE: ${{ github.event_name == 'schedule' && 'auto' || inputs.mode || 'manual' }}
       RUN_BACKFILL: ${{ inputs.backfill == true && '--backfill' || '' }}
+      RUN_ANALYSIS: ${{ inputs.analysis == true && '--analysis' || '' }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Decide what to update now
         id: gate
-        run: python3 scripts/pipeline.py --check --mode "$RUN_MODE" $RUN_BACKFILL
+        run: python3 scripts/pipeline.py --check --mode "$RUN_MODE" $RUN_BACKFILL $RUN_ANALYSIS
 
       - uses: actions/setup-python@v5
         if: steps.gate.outputs.run == 'true'
@@ -61,7 +66,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
-        run: python scripts/pipeline.py --mode "$RUN_MODE" $RUN_BACKFILL
+        run: python scripts/pipeline.py --mode "$RUN_MODE" $RUN_BACKFILL $RUN_ANALYSIS
 
       - name: Commit updated data
         if: steps.gate.outputs.run == 'true'
