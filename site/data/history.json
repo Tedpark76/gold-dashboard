@@ -222,5 +222,21 @@
   "silver_krw_don": 7334,
   "gold_krw_dod_pct": -4.03,
   "silver_krw_dod_pct": -10.24
+ },
+ {
+  "date": "2026-11-19",
+  "weekday": "목",
+  "note": "",
+  "gold_spot": 3757.35,
+  "gold_fut": 3753.3,
+  "silver_spot": 45.65,
+  "silver_fut": 45.63,
+  "usdkrw": 1330.08,
+  "gold_spread_pct": -0.11,
+  "silver_spread_pct": -0.04,
+  "gold_krw_don": 602534,
+  "silver_krw_don": 7320,
+  "gold_krw_dod_pct": -0.53,
+  "silver_krw_dod_pct": -0.19
  }
 ]
